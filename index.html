@@ -1,0 +1,171 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conductor Hero</title>
+<style>
+  :root { --gold: #e8b04b; --ink: #0b0a10; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: var(--ink); font-family: system-ui, sans-serif; color: #eee; }
+  canvas#stage, canvas#hud { position: fixed; inset: 0; width: 100%; height: 100%; }
+  canvas#hud { pointer-events: none; z-index: 4; }
+  video#cam { position: fixed; right: 14px; bottom: 14px; width: 168px; border-radius: 10px;
+    transform: scaleX(-1); opacity: .85; border: 1px solid #333; display: none; z-index: 3; }
+  /* calibration preview: big, bottom-anchored (panel text sits at the top),
+     height capped so the two never overlap; HUD draws landmarks over it */
+  video#cam.big { width: min(480px, 82vw, 60vh); right: 50%; bottom: 3vh;
+    transform: translateX(50%) scaleX(-1); opacity: 1; z-index: 6; }
+  canvas#hud.top { z-index: 7; }
+  #ytwrap { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%);
+    width: min(60vw, 105vh); aspect-ratio: 16 / 9; z-index: 2; display: none;
+    pointer-events: none; border-radius: 12px; overflow: hidden; opacity: .95;
+    border: 1px solid #3a3350; box-shadow: 0 10px 70px rgba(0,0,0,.75); }
+  #ytwrap iframe { width: 100%; height: 100%; }
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 30%, rgba(30,24,40,.92), rgba(8,7,12,.97)); z-index: 5; }
+  /* calibration must show the camera preview and the live HUD diagnostics below it */
+  #calib { background: rgba(8, 7, 12, .35); align-items: flex-start; padding-top: 5vh; }
+  #calib-step { color: var(--gold); letter-spacing: .25em; font-weight: 700; font-size: .95rem; }
+  #calib-icon { font-size: clamp(3.4rem, 11vw, 5.5rem); margin: 10px 0; line-height: 1;
+    filter: grayscale(1) opacity(.65); transition: filter .2s; }
+  #calib-icon.live { filter: none; }
+  #calib-icon.bounce { animation: cbounce .7s ease-in-out infinite; }
+  #calib-icon.pulse { animation: cpulse 1s ease-in-out infinite; }
+  #calib-icon.tickflash { animation: ctick .25s ease-out 1; }
+  @keyframes cbounce { 0%, 100% { transform: translateY(-14px); } 55% { transform: translateY(18px); } }
+  @keyframes cpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  @keyframes ctick { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
+  #calib-status { font-family: Georgia, serif; font-size: clamp(1.3rem, 4.2vw, 2.1rem);
+    color: #fff3d6; margin: 10px 0 14px; text-shadow: 0 2px 18px rgba(0,0,0,.8); line-height: 1.25; }
+  #calib-dots { display: flex; gap: 12px; justify-content: center; min-height: 22px; }
+  #calib-dots span { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #6a6280;
+    transition: .2s; }
+  #calib-dots span.on { background: var(--gold); border-color: var(--gold);
+    box-shadow: 0 0 14px rgba(232,176,75,.8); }
+  .panel { max-width: min(560px, 92vw); text-align: center; padding: 28px; }
+  h1 { font-family: Georgia, serif; font-size: clamp(2.2rem, 7vw, 4rem); letter-spacing: .04em;
+    background: linear-gradient(180deg, #fff3d6, var(--gold) 55%, #8a5a17);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tag { color: #b9b2c8; margin: 6px 0 26px; font-size: .95rem; }
+  .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
+  button, label.btn { cursor: pointer; border: 1px solid #5a4a2a; background: linear-gradient(180deg, #2a2333, #171220);
+    color: #f2e6c8; font-size: 1.05rem; padding: 12px 22px; border-radius: 10px; transition: .15s; }
+  button:hover, label.btn:hover { border-color: var(--gold); transform: translateY(-1px); }
+  button.primary { background: linear-gradient(180deg, #7a5a1c, #4a350e); border-color: var(--gold); }
+  input[type=file] { display: none; }
+  fieldset { border: 1px solid #332c44; border-radius: 10px; padding: 10px 16px; margin: 18px auto 8px; display: inline-block; }
+  legend { padding: 0 8px; color: #b9b2c8; font-size: .85rem; }
+  fieldset label { margin: 0 10px; cursor: pointer; }
+  details { margin-top: 16px; color: #9a92ae; font-size: .85rem; }
+  details input[type=range] { width: 220px; vertical-align: middle; }
+  .fine { margin-top: 18px; color: #7a7390; font-size: .78rem; line-height: 1.5; }
+  .bar { width: min(420px, 80vw); height: 10px; background: #221d30; border-radius: 5px; margin: 18px auto; overflow: hidden; }
+  .bar .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #8a5a17, var(--gold)); transition: width .2s; }
+  #results table { margin: 14px auto; border-collapse: collapse; font-size: 1rem; }
+  #results td { padding: 5px 16px; text-align: left; }
+  #results td:last-child { text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; }
+  #rank { font-family: Georgia, serif; font-size: clamp(1.6rem, 5vw, 2.6rem); color: var(--gold); margin: 8px 0; }
+  #stars { font-size: 1.8rem; letter-spacing: .2em; color: var(--gold); }
+  #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: #3a1520;
+    border: 1px solid #a54; color: #fdd; padding: 10px 18px; border-radius: 10px; z-index: 9;
+    opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 90vw; }
+  .hidden { display: none !important; }
+</style>
+
+<canvas id="stage"></canvas>
+<canvas id="hud"></canvas>
+<video id="cam" playsinline muted></video>
+<div id="ytwrap"><div id="ytplayer"></div></div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1>CONDUCTOR HERO</h1>
+    <div class="tag">Take the podium. The orchestra is watching.</div>
+    <div class="row">
+      <button id="btn-demo" class="primary">&#127925; Demo Symphony</button>
+      <label class="btn" for="file">&#128194; Upload MP3</label>
+      <input type="file" id="file" accept="audio/*,.mp3,.m4a,.ogg,.wav">
+    </div>
+    <fieldset>
+      <legend>Baton</legend>
+      <label><input type="radio" name="inputmode" value="camera" checked> &#128247; Camera (hand)</label>
+      <label><input type="radio" name="inputmode" value="baton"> &#128396;&#65039; Camera (pen/baton tip)</label>
+      <label><input type="radio" name="inputmode" value="mouse"> &#128433;&#65039; Mouse</label>
+    </fieldset>
+    <br>
+    <fieldset>
+      <legend>Difficulty</legend>
+      <label><input type="radio" name="difficulty" value="apprentice"> Apprentice</label>
+      <label><input type="radio" name="difficulty" value="kapellmeister" checked> Kapellmeister</label>
+      <label><input type="radio" name="difficulty" value="virtuoso"> Virtuoso</label>
+    </fieldset>
+    <p style="margin-top:16px"><input type="url" id="yturl"
+      placeholder="YouTube score-video URL (optional)"
+      style="width:min(360px,74vw);padding:9px 12px;border-radius:8px;border:1px solid #444;background:#161022;color:#eee"></p>
+    <div class="fine" style="margin-top:6px">Browsers can't tap YouTube audio &mdash; the game still analyzes and
+      plays <em>your</em> MP3, and keeps the (muted) video in sync. Use a video of the same recording.</div>
+    <details>
+      <summary>Advanced</summary>
+      <p style="margin-top:10px">Input offset <input type="range" id="offset" min="-200" max="250" step="10">
+        <span id="offset-val"></span> ms
+        <button id="btn-calib" style="font-size:.85rem;padding:6px 14px;margin-left:10px">Calibrate</button></p>
+      <p style="margin-top:8px"><label><input type="checkbox" id="campan" checked> Cinematic camera (auto-pan the orchestra)</label></p>
+    </details>
+    <div class="fine">Spotify streams are DRM-protected &mdash; browsers can't read their raw audio.
+      Export the track to MP3 and upload it instead.<br>
+      Camera mode tracks your index fingertip as the baton tip. Conduct with clear down-strokes.</div>
+  </div>
+</div>
+
+<div id="calib" class="overlay hidden">
+  <div class="panel">
+    <div id="calib-step">STEP 1 OF 3</div>
+    <div id="calib-icon">&#11015;&#65039;</div>
+    <div id="calib-status">Flick down on every click</div>
+    <div id="calib-dots"></div>
+    <div class="row" style="margin-top:18px"><button id="btn-calib-cancel">Cancel</button></div>
+  </div>
+</div>
+
+<div id="analyzing" class="overlay hidden">
+  <div class="panel">
+    <h1 style="font-size:2rem">Studying the score&hellip;</h1>
+    <div class="bar"><div class="fill" id="ana-fill"></div></div>
+    <div class="tag" id="ana-status">Decoding audio</div>
+  </div>
+</div>
+
+<div id="ready" class="overlay hidden">
+  <div class="panel">
+    <h1 style="font-size:2.4rem">Ready, Maestro</h1>
+    <div class="tag" id="piece-info"></div>
+    <div class="row">
+      <button id="btn-start" class="primary">&#127908; Raise the Baton</button>
+      <button id="btn-calib2">&#127919; Calibrate baton</button>
+    </div>
+    <div class="fine">Flick downward on each beat &mdash; the bottom of your stroke is the beat.<br>
+      Big strokes = forte, small strokes = piano. Point at sections when cued.<br>
+      Camera mode: face a light source, keep your hand inside the preview, first time &rarr; Calibrate.</div>
+  </div>
+</div>
+
+<div id="results" class="overlay hidden">
+  <div class="panel">
+    <div id="stars"></div>
+    <div id="rank"></div>
+    <table id="res-stats"></table>
+    <div class="row">
+      <button id="btn-encore" class="primary">Encore</button>
+      <button id="btn-new">New Piece</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="src/main.js"></script>

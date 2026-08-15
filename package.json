@@ -1,0 +1,9 @@
+{
+  "name": "conductorhero",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 8123",
+    "test": "node test/dsp-test.mjs"
+  }
+}

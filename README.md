@@ -50,6 +50,10 @@ localhost qualifies.
   moment, at the cue time (±0.75s) → +250 and the section lights up.
 - **Pattern box** (top-left): gold dot = where the baton should be (music-synced
   guide), white ring = where your baton is.
+- **Start at** (Ready screen, `m:ss` or seconds): begin partway into the piece.
+  Beats/cues/phrases before the mark are skipped (not scored, not counted in
+  accuracy); the YouTube video, if any, parks on the same mark through the
+  countdown and plays from there.
 - **YouTube score video** (optional, menu field): embeds the video muted,
   centered behind the HUD, and keeps it seek-synced to your MP3 (±0.4s).
   Browsers cannot read YouTube's audio (DRM/cross-origin), so the analyzed and

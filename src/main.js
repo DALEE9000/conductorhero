@@ -145,9 +145,9 @@ function ytSync() { // called every frame; throttled inside
   try {
     if (!game.playing) { if (ytPlayer.getPlayerState() === 1) ytPlayer.pauseVideo(); return; }
     const t = game.songTime();
-    if (t < 0) {
+    if (t < game.startOff) { // countdown: park the video on the start mark
       ytPlayer.pauseVideo(); // seekTo from a cued state would START playback
-      ytPlayer.seekTo(0, true);
+      ytPlayer.seekTo(game.startOff, true);
       ytPlayer.pauseVideo();
     } else if (ytPlayer.getPlayerState() !== 1) {
       ytPlayer.seekTo(t, true);
@@ -178,6 +178,16 @@ async function armBaton(mode) {
   }
 }
 
+// "1:30" | "90" | "1m30s" → seconds; clamped to the piece
+function startAtSec() {
+  const s = $('startat').value.trim();
+  const m = s.match(/^(\d+):(\d{1,2})$/);
+  let sec = m ? Number(m[1]) * 60 + Number(m[2]) : Number(s.replace(/[ms]/g, '')) || 0;
+  sec = Math.max(0, Math.min(sec, game.buffer ? game.buffer.duration - 1 : sec));
+  $('startat').value = `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  return sec;
+}
+
 $('btn-start').addEventListener('click', async () => {
   if (inputMode() === 'baton' && !localStorage.getItem('ch-baton-color')) {
     toast('First, teach me what your baton tip looks like — quick calibration.');
@@ -186,6 +196,7 @@ $('btn-start').addEventListener('click', async () => {
   }
   $('btn-start').disabled = true;
   game.setDifficulty(difficulty());
+  game.startAt = startAtSec();
   await armBaton(inputMode());
   const url = $('yturl').value.trim();
   const vid = ytId(url);

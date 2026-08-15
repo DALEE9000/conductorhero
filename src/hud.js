@@ -181,7 +181,7 @@ export class HUD {
 
     // phrase spans: brackets above the lane, silence shading inside it
     for (const p of s.phrases || []) {
-      if (p.t1 < s.t - 0.5 || p.t0 > s.t + 3.6) continue;
+      if (p.t1 < s.t - 0.5 || p.t0 > s.t + 3.6 || p.state === 'skipped') continue;
       const x0 = Math.max(w * 0.05, ictusX + (p.t0 - s.t) * pxSec);
       const x1 = Math.min(w * 0.95, ictusX + (p.t1 - s.t) * pxSec);
       if (x1 - x0 < 12) continue;
@@ -213,7 +213,7 @@ export class HUD {
     let prevLegatoX = null;
     for (const b of s.beats) {
       const dt = b.t - s.t;
-      if (dt < -0.6 || dt > 3.6) continue;
+      if (dt < -0.6 || dt > 3.6 || b.state === 'skipped') continue; // skipped = before the start mark
       const x = ictusX + dt * pxSec;
       if (x < w * 0.05 || x > w * 0.95) { prevLegatoX = null; continue; }
       if (b.legato && b.state === 'pending') {
@@ -315,7 +315,7 @@ export class HUD {
     const { ctx, w, h } = this;
     for (const c of s.cues) {
       const dt = c.t - s.t;
-      if (dt > 3 || dt < -0.8) continue;
+      if (dt > 3 || dt < -0.8 || c.state === 'skipped') continue;
       const chev = ['◀', '▲', '▶'][c.zone] + (s.batonMode !== 'mouse' ? ' / ✋' : '');
       const urgency = Math.max(0, Math.min(1, 1 - dt / 3));
       const y = h * 0.12;

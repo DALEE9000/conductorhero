@@ -28,6 +28,7 @@ export class Game {
     this.onFinish = onFinish;
     this.playing = false;
     this.inputOffset = 0; // seconds; positive shifts gestures earlier
+    this.startAt = 0;     // seconds into the piece to begin (song time stays absolute)
     this.difficulty = DIFFICULTIES.kapellmeister;
     baton.onIctus = e => this.handleIctus(e);
   }
@@ -46,9 +47,14 @@ export class Game {
     this.ctx = audioCtx;
     this.baton.onIctus = e => this.handleIctus(e); // reclaim input, whatever ran before
     await this.ctx.resume();
-    for (const b of this.choreo.beats) { b.state = 'pending'; b.judge = null; }
-    for (const c of this.choreo.cues) c.state = 'pending';
-    for (const p of this.choreo.phrases) { p.state = 'pending'; p.early = null; p.late = null; p.sum = 0; p.n = 0; }
+    // events before the start mark are 'skipped': never scored, never counted
+    const off = Math.max(0, Math.min(this.startAt || 0, this.buffer.duration - 1));
+    this.startOff = off;
+    for (const b of this.choreo.beats) { b.state = b.t < off - 0.05 ? 'skipped' : 'pending'; b.judge = null; }
+    for (const c of this.choreo.cues) c.state = c.t < off ? 'skipped' : 'pending';
+    for (const p of this.choreo.phrases) {
+      p.state = p.t1 <= off ? 'skipped' : 'pending'; p.early = null; p.late = null; p.sum = 0; p.n = 0;
+    }
     this.phraseHits = 0;
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.counts = { PERFECT: 0, GOOD: 0, MISS: 0 };
@@ -61,8 +67,8 @@ export class Game {
     this.src.buffer = this.buffer;
     this.src.connect(this.ctx.destination);
     const startAt = this.ctx.currentTime + 3;
-    this.src.start(startAt);
-    this.ctxStart = startAt;
+    this.src.start(startAt, off);
+    this.ctxStart = startAt - off; // songTime() = position in the piece, so beats stay valid
     this.perfStart = performance.now() / 1000 + (startAt - this.ctx.currentTime);
     this.src.onended = () => { if (!this.done) this.finish(); };
     this.playing = true;
@@ -84,8 +90,8 @@ export class Game {
     if (!this.playing) return;
     const d = this.difficulty;
     const beatWin = BEAT_WINDOW * d.window;
-    const t = (e.t - this.perfStart) - this.inputOffset;
-    if (t < -0.5) return;
+    const t = (e.t - this.perfStart) + this.startOff - this.inputOffset;
+    if (t < this.startOff - 0.5) return;
     let best = null, bestDt = beatWin + 1e-3;
     for (const b of this.choreo.beats) {
       if (b.state !== 'pending') continue;
@@ -232,7 +238,8 @@ export class Game {
       trackingLost: b.mode !== 'mouse' && !b.tracking,
       batonMode: b.mode,
       cueHandUp: b.cueRaised,
-      countdown: t < -0.2 ? String(Math.ceil(-t)) : (t < 0.35 ? 'MAESTRO!' : null),
+      countdown: t - this.startOff < -0.2 ? String(Math.ceil(this.startOff - t))
+        : (t - this.startOff < 0.35 ? 'MAESTRO!' : null),
     };
   }
 
@@ -242,7 +249,7 @@ export class Game {
     for (const b of this.choreo.beats) {
       if (b.state === 'pending') { b.state = 'miss'; this.counts.MISS++; }
     }
-    const total = this.choreo.beats.length || 1;
+    const total = this.choreo.beats.filter(b => b.state !== 'skipped').length || 1;
     const acc = (this.counts.PERFECT + 0.6 * this.counts.GOOD) / total;
     const rank = RANKS.find(r => acc >= r[0]);
     this.onFinish({
@@ -251,10 +258,10 @@ export class Game {
       counts: this.counts,
       maxCombo: this.maxCombo,
       cueHits: this.cueHits,
-      cueTotal: this.choreo.cues.length,
+      cueTotal: this.choreo.cues.filter(c => c.state !== 'skipped').length,
       dynHits: this.dynHits,
       phraseHits: this.phraseHits,
-      phraseTotal: this.choreo.phrases.length,
+      phraseTotal: this.choreo.phrases.filter(p => p.state !== 'skipped').length,
       rank: rank[1],
       stars: rank[2],
       difficulty: this.difficulty.label,
